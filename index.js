@@ -4,6 +4,12 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
+const {
+    calculateScore,
+    getEvidenceLabel,
+    getEvidenceBreakdown
+} = require("./src/scoring/evidence");
+
 const command = process.argv[2];
 
 const SOURCE_EXTENSIONS = [
@@ -420,66 +426,6 @@ function findTestReferences(
 
 
 /**
- * Calculate evidence score for one file.
- */
-function calculateScore({
-    oldFile,
-    importers,
-    testReferences,
-    runtimeSignal = false
-}) {
-    let score = 0;
-
-    if (oldFile) {
-        score += 40;
-    }
-
-    if (importers === 0) {
-        score += 30;
-    } else {
-        score -= Math.min(
-            importers * 10,
-            30
-        );
-    }
-
-    if (testReferences === 0) {
-        score += 20;
-    } else {
-        score -= Math.min(
-            testReferences * 5,
-            15
-        );
-    }
-
-    if (runtimeSignal) {
-        score -= 30;
-    }
-
-    return Math.max(
-        0,
-        Math.min(100, score)
-    );
-}
-
-
-/**
- * Convert score to a label.
- */
-function getEvidenceLabel(score) {
-    if (score >= 70) {
-        return "HIGH";
-    }
-
-    if (score >= 40) {
-        return "MEDIUM";
-    }
-
-    return "LOW";
-}
-
-
-/**
  * Get the feature/area name from a file path.
  */
 function getFeatureArea(file) {
@@ -724,6 +670,25 @@ function scanRepository(
             `   Test references: ${testReferences.length}`
         );
 
+        console.log("");
+        console.log("   Evidence breakdown:");
+
+        const breakdown =
+            getEvidenceBreakdown({
+                oldFile: true,
+                importers: importers.length,
+                testReferences: testReferences.length,
+                runtimeSignal
+            });
+
+        for (const item of breakdown) {
+            const sign = item.points >= 0 ? "+" : "";
+            console.log(
+                `   ${sign}${item.points}  ${item.reason}`
+            );
+        }
+
+        console.log("");
         console.log(
             `   Evidence score: ${score}/100`
         );
@@ -892,6 +857,7 @@ if (require.main === module) {
 module.exports = {
     calculateScore,
     getEvidenceLabel,
+    getEvidenceBreakdown,
     isTestFile,
     extractImports,
     getFeatureArea,
