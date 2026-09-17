@@ -153,8 +153,18 @@ test("days should be converted to milliseconds", () => {
 
 test("days argument should be parsed correctly", () => {
     assert.strictEqual(
+        getDaysArgument(["scan", "--days", "1"]),
+        1
+    );
+
+    assert.strictEqual(
         getDaysArgument(["scan", "--days", "90"]),
         90
+    );
+
+    assert.strictEqual(
+        getDaysArgument(["scan", "--days", "180"]),
+        180
     );
 
     assert.strictEqual(
@@ -168,23 +178,45 @@ test("days argument should be parsed correctly", () => {
     );
 
     assert.throws(
-        () => getDaysArgument(["scan", "--days", "abc"]),
-        /--days requires a positive number/
+        () => getDaysArgument(
+            ["scan", "--days", "0"]
+        ),
+        /--days requires a whole number between 1 and 365/
     );
 
     assert.throws(
-        () => getDaysArgument(["scan", "--days"]),
-        /--days requires a positive number/
+        () => getDaysArgument(
+            ["scan", "--days", "366"]
+        ),
+        /--days requires a whole number between 1 and 365/
     );
 
     assert.throws(
-        () => getDaysArgument(["scan", "--days", "0"]),
-        /--days requires a positive number/
+        () => getDaysArgument(
+            ["scan", "--days", "-30"]
+        ),
+        /--days requires a whole number between 1 and 365/
     );
 
     assert.throws(
-        () => getDaysArgument(["scan", "--days", "-30"]),
-        /--days requires a positive number/
+        () => getDaysArgument(
+            ["scan", "--days", "90.5"]
+        ),
+        /--days requires a whole number between 1 and 365/
+    );
+
+    assert.throws(
+        () => getDaysArgument(
+            ["scan", "--days", "abc"]
+        ),
+        /--days requires a whole number between 1 and 365/
+    );
+
+    assert.throws(
+        () => getDaysArgument(
+            ["scan", "--days"]
+        ),
+        /--days requires a whole number between 1 and 365/
     );
 });
 
