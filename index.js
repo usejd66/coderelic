@@ -24,6 +24,24 @@ const TEST_PATTERNS = [
 ];
 
 const SIX_MONTHS = 180 * 24 * 60 * 60 * 1000;
+function daysToMilliseconds(days) {
+    return days * 24 * 60 * 60 * 1000;
+}
+function getDaysArgument(args) {
+    const daysIndex = args.indexOf("--days");
+
+    if (daysIndex === -1) {
+        return 180;
+    }
+
+    const days = Number(args[daysIndex + 1]);
+
+    if (!Number.isFinite(days) || days <= 0) {
+        return 180;
+    }
+
+    return days;
+}
 
 function isFileOlderThan(lastModified, threshold, now = Date.now()) {
     return now - lastModified > threshold;
@@ -259,7 +277,7 @@ function buildImportGraph(gitRoot, files) {
 /**
  * Find old files using Git history.
  */
-function findOldFiles(files) {
+function findOldFiles(files, threshold = SIX_MONTHS) {
     const now = Date.now();
     const oldFiles = [];
 
@@ -275,7 +293,7 @@ function findOldFiles(files) {
         const lastModified = Number(timestamp) * 1000;
         const age = now - lastModified;
 
-        if (isFileOlderThan(lastModified, SIX_MONTHS, now)) {
+        if (isFileOlderThan(lastModified, threshold, now)) {
             oldFiles.push({
                 file,
                 lastModified
@@ -468,11 +486,12 @@ function aggregateFeatureAreas(
 /**
  * Scan repository.
  */
-function scanRepository() {
+function scanRepository(threshold = SIX_MONTHS) {
     console.log("");
     console.log("CodeRelic");
     console.log("────────────────────────────────────────");
     console.log("Scanning repository...");
+    console.log(`Age threshold: ${threshold / (24 * 60 * 60 * 1000)} days`);
     console.log("");
 
     const gitRoot = runGit("git rev-parse --show-toplevel");
@@ -491,7 +510,7 @@ function scanRepository() {
 
     console.log(`Files analyzed: ${files.length}`);
 
-    const oldFiles = findOldFiles(files);
+    const oldFiles = findOldFiles(files, threshold);
     const importedBy = buildImportGraph(gitRoot, files);
 
     const testReferencesBy = new Map();
@@ -626,7 +645,10 @@ if (require.main === module) {
     }
 
     if (command === "scan") {
-        scanRepository();
+        const days = getDaysArgument(process.argv.slice(2));
+        const threshold = daysToMilliseconds(days);
+
+        scanRepository(threshold);
     } else {
         console.log(`Unknown command: ${command}`);
         console.log("");
@@ -643,5 +665,7 @@ module.exports = {
     getFeatureArea,
     aggregateFeatureAreas,
     isPotentialRuntimeEntry,
-    isFileOlderThan
+    isFileOlderThan,
+    daysToMilliseconds,
+    getDaysArgument
 };

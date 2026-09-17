@@ -8,8 +8,11 @@ const {
     extractImports,
     getFeatureArea,
     aggregateFeatureAreas,
-    isPotentialRuntimeEntry
-} = require("../index.js");
+    isPotentialRuntimeEntry,
+    isFileOlderThan,
+    daysToMilliseconds,
+    getDaysArgument
+} = require("../index");
 
 
 // --------------------------------------------------
@@ -92,6 +95,7 @@ test("relative imports should be extracted", () => {
     );
 });
 
+
 test("dynamic imports should be extracted", () => {
     const code = `
         const payments = import("./payments");
@@ -104,18 +108,63 @@ test("dynamic imports should be extracted", () => {
         ["./payments"]
     );
 });
+
+
+// --------------------------------------------------
+// File age tests
+// --------------------------------------------------
+
 test("custom age threshold should identify old files", () => {
     const now = Date.now();
     const ninetyDays = 90 * 24 * 60 * 60 * 1000;
 
     assert.strictEqual(
-        now - (now - ninetyDays - 1000) > ninetyDays,
+        isFileOlderThan(
+            now - ninetyDays - 1000,
+            ninetyDays,
+            now
+        ),
         true
     );
 
     assert.strictEqual(
-        now - (now - ninetyDays + 1000) > ninetyDays,
+        isFileOlderThan(
+            now - ninetyDays + 1000,
+            ninetyDays,
+            now
+        ),
         false
+    );
+});
+
+
+test("days should be converted to milliseconds", () => {
+    assert.strictEqual(
+        daysToMilliseconds(1),
+        24 * 60 * 60 * 1000
+    );
+
+    assert.strictEqual(
+        daysToMilliseconds(90),
+        90 * 24 * 60 * 60 * 1000
+    );
+});
+
+
+test("days argument should be parsed correctly", () => {
+    assert.strictEqual(
+        getDaysArgument(["scan", "--days", "90"]),
+        90
+    );
+
+    assert.strictEqual(
+        getDaysArgument(["scan", "--days", "365"]),
+        365
+    );
+
+    assert.strictEqual(
+        getDaysArgument(["scan"]),
+        180
     );
 });
 
@@ -299,6 +348,7 @@ test("runtime signal should reduce abandonment evidence", () => {
     });
 
     assert.strictEqual(score, 60);
+
     assert.strictEqual(
         getEvidenceLabel(score),
         "MEDIUM"
