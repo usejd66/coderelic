@@ -425,16 +425,28 @@ function scanRepository() {
 /**
  * CLI routing.
  */
-if (!command || command === "--help" || command === "-h") {
-    showHelp();
-    process.exit(0);
+/**
+ * CLI routing.
+ */
+if (require.main === module) {
+    if (!command || command === "--help" || command === "-h") {
+        showHelp();
+        process.exit(0);
+    }
+
+    if (command === "scan") {
+        scanRepository();
+    } else {
+        console.log(`✕ Unknown command: ${command}`);
+        console.log("");
+        showHelp();
+        process.exit(1);
+    }
 }
 
-if (command === "scan") {
-    scanRepository();
-} else {
-    console.log(`✕ Unknown command: ${command}`);
-    console.log("");
-    showHelp();
-    process.exit(1);
-}
+module.exports = {
+    calculateScore,
+    getEvidenceLabel,
+    isTestFile,
+    extractImports
+};
