@@ -15,10 +15,18 @@ const SOURCE_EXTENSIONS = [
     ".cjs"
 ];
 
+const TEST_PATTERNS = [
+    ".test.",
+    ".spec.",
+    "__tests__/",
+    "tests/",
+    "test/"
+];
+
 const SIX_MONTHS = 180 * 24 * 60 * 60 * 1000;
 
 /**
- * Execute a Git command safely.
+ * Run a Git command safely.
  */
 function runGit(command) {
     try {
@@ -32,7 +40,7 @@ function runGit(command) {
 }
 
 /**
- * Show CLI help.
+ * Display CLI help.
  */
 function showHelp() {
     console.log(`
@@ -47,27 +55,20 @@ Usage:
 }
 
 /**
- * Get all tracked files from Git.
- */
-function getTrackedFiles() {
-    const output = runGit("git ls-files");
-
-    if (!output) {
-        return [];
-    }
-
-    return output
-        .split("\n")
-        .map(file => file.trim())
-        .filter(Boolean);
-}
-
-/**
- * Check if a file is a source file.
+ * Check whether a path is a source file.
  */
 function isSourceFile(file) {
     return SOURCE_EXTENSIONS.some(extension =>
         file.endsWith(extension)
+    );
+}
+
+/**
+ * Check whether a file looks like a test file.
+ */
+function isTestFile(file) {
+    return TEST_PATTERNS.some(pattern =>
+        file.includes(pattern)
     );
 }
 
@@ -83,7 +84,23 @@ function readFile(filePath) {
 }
 
 /**
- * Extract relative imports/requires from JavaScript/TypeScript code.
+ * Get tracked files.
+ */
+function getTrackedFiles() {
+    const output = runGit("git ls-files");
+
+    if (!output) {
+        return [];
+    }
+
+    return output
+        .split("\n")
+        .map(file => file.trim())
+        .filter(Boolean);
+}
+
+/**
+ * Extract relative imports and requires.
  */
 function extractImports(content) {
     const imports = [];
@@ -119,22 +136,13 @@ function resolveImport(importer, importPath, trackedFilesSet) {
         path.join(importerDirectory, importPath)
     );
 
-    const candidates = [];
-
-    // Exact path
-    candidates.push(basePath);
-
-    // Add common source extensions
-    for (const extension of SOURCE_EXTENSIONS) {
-        candidates.push(basePath + extension);
-    }
-
-    // Directory index files
-    for (const extension of SOURCE_EXTENSIONS) {
-        candidates.push(
-            path.join(basePath, `index${extension}`)
-        );
-    }
+    const candidates = [
+        basePath,
+        ...SOURCE_EXTENSIONS.map(ext => basePath + ext),
+        ...SOURCE_EXTENSIONS.map(ext =>
+            path.join(basePath, `index${ext}`)
+        )
+    ];
 
     for (const candidate of candidates) {
         const normalized = candidate.replace(/\\/g, "/");
@@ -148,7 +156,7 @@ function resolveImport(importer, importPath, trackedFilesSet) {
 }
 
 /**
- * Build an import graph.
+ * Build import graph.
  */
 function buildImportGraph(gitRoot, files) {
     const trackedFilesSet = new Set(files);
@@ -183,10 +191,10 @@ function buildImportGraph(gitRoot, files) {
                 continue;
             }
 
-            const currentImporters = importedBy.get(target);
+            const importers = importedBy.get(target);
 
-            if (currentImporters && !currentImporters.includes(importer)) {
-                currentImporters.push(importer);
+            if (importers && !importers.includes(importer)) {
+                importers.push(importer);
             }
         }
     }
@@ -195,9 +203,9 @@ function buildImportGraph(gitRoot, files) {
 }
 
 /**
- * Find old files.
+ * Find old files using Git history.
  */
-function findOldFiles(gitRoot, files) {
+function findOldFiles(files) {
     const now = Date.now();
     const oldFiles = [];
 
@@ -225,7 +233,94 @@ function findOldFiles(gitRoot, files) {
 }
 
 /**
- * Main scan.
+ * Find test files that reference a target file.
+ */
+function findTestReferences(gitRoot, files, targetFile) {
+    const references = [];
+
+    const targetName = path.basename(targetFile, path.extname(targetFile));
+
+    for (const file of files) {
+        if (!isTestFile(file)) {
+            continue;
+        }
+
+        const absolutePath = path.join(gitRoot, file);
+        const content = readFile(absolutePath);
+
+        if (!content) {
+            continue;
+        }
+
+        const normalizedTarget = targetFile.replace(/\\/g, "/");
+
+        const possibleNames = [
+            targetName,
+            normalizedTarget,
+            `./${normalizedTarget}`
+        ];
+
+        const matches = possibleNames.some(name =>
+            content.includes(name)
+        );
+
+        if (matches) {
+            references.push(file);
+        }
+    }
+
+    return references;
+}
+
+/**
+ * Calculate evidence score.
+ */
+function calculateScore({
+    oldFile,
+    importers,
+    testReferences
+}) {
+    let score = 0;
+
+    // Old file is the starting point.
+    if (oldFile) {
+        score += 40;
+    }
+
+    // No imports increases abandonment evidence.
+    if (importers === 0) {
+        score += 30;
+    } else {
+        score -= Math.min(importers * 10, 30);
+    }
+
+    // No test references increases evidence.
+    if (testReferences === 0) {
+        score += 20;
+    } else {
+        score -= Math.min(testReferences * 5, 15);
+    }
+
+    return Math.max(0, Math.min(100, score));
+}
+
+/**
+ * Convert score to a label.
+ */
+function getEvidenceLabel(score) {
+    if (score >= 70) {
+        return "HIGH";
+    }
+
+    if (score >= 40) {
+        return "MEDIUM";
+    }
+
+    return "LOW";
+}
+
+/**
+ * Scan repository.
  */
 function scanRepository() {
     console.log("");
@@ -238,8 +333,6 @@ function scanRepository() {
 
     if (!gitRoot) {
         console.log("✕ This folder is not a Git repository.");
-        console.log("");
-        console.log("Run CodeRelic inside a Git repository.");
         process.exit(1);
     }
 
@@ -252,10 +345,7 @@ function scanRepository() {
 
     console.log(`Files analyzed: ${files.length}`);
 
-    // Find files with old Git activity.
-    const oldFiles = findOldFiles(gitRoot, files);
-
-    // Analyze imports.
+    const oldFiles = findOldFiles(files);
     const importedBy = buildImportGraph(gitRoot, files);
 
     console.log("");
@@ -264,48 +354,71 @@ function scanRepository() {
 
     if (oldFiles.length === 0) {
         console.log("✓ No old files found.");
-    } else {
-        for (const oldFile of oldFiles) {
-            const date = new Date(oldFile.lastModified)
-                .toISOString()
-                .split("T")[0];
+        console.log("");
+    }
 
-            const importers = importedBy.get(oldFile.file) || [];
+    let highConfidence = 0;
+    let mediumConfidence = 0;
 
-            console.log(`👻 ${oldFile.file}`);
-            console.log(`   Last changed: ${date}`);
-            console.log(`   Imported by: ${importers.length}`);
+    for (const oldFile of oldFiles) {
+        const importers = importedBy.get(oldFile.file) || [];
 
-            if (importers.length === 0) {
-                console.log("   Usage signal: none detected");
-                console.log("   Evidence: HIGH");
-            } else {
-                console.log("   Usage signal: active");
-                console.log("   Evidence: LOW");
-            }
+        const testReferences = findTestReferences(
+            gitRoot,
+            files,
+            oldFile.file
+        );
 
-            if (importers.length > 0) {
-                console.log("");
-                console.log("   Imported from:");
+        const score = calculateScore({
+            oldFile: true,
+            importers: importers.length,
+            testReferences: testReferences.length
+        });
 
-                for (const importer of importers) {
-                    console.log(`   - ${importer}`);
-                }
-            }
+        const evidence = getEvidenceLabel(score);
 
-            console.log("");
+        if (evidence === "HIGH") {
+            highConfidence++;
+        } else if (evidence === "MEDIUM") {
+            mediumConfidence++;
         }
+
+        const date = new Date(oldFile.lastModified)
+            .toISOString()
+            .split("T")[0];
+
+        console.log(`👻 ${oldFile.file}`);
+        console.log(`   Last changed: ${date}`);
+        console.log(`   Imported by: ${importers.length}`);
+        console.log(`   Test references: ${testReferences.length}`);
+        console.log(`   Evidence score: ${score}/100`);
+        console.log(`   Evidence: ${evidence}`);
+
+        if (importers.length > 0) {
+            console.log("");
+            console.log("   Imported from:");
+
+            for (const importer of importers) {
+                console.log(`   - ${importer}`);
+            }
+        }
+
+        if (testReferences.length > 0) {
+            console.log("");
+            console.log("   Test references:");
+
+            for (const test of testReferences) {
+                console.log(`   - ${test}`);
+            }
+        }
+
+        console.log("");
     }
 
     console.log("────────────────────────────────────────");
-
-    const highConfidence = oldFiles.filter(oldFile => {
-        const importers = importedBy.get(oldFile.file) || [];
-        return importers.length === 0;
-    });
-
     console.log(`Old files found: ${oldFiles.length}`);
-    console.log(`High-confidence candidates: ${highConfidence.length}`);
+    console.log(`High-confidence candidates: ${highConfidence}`);
+    console.log(`Medium-confidence candidates: ${mediumConfidence}`);
     console.log("");
 }
 
