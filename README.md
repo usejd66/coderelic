@@ -351,3 +351,12 @@ Please keep changes focused and include tests for new behavior.
 ## License
 
 ISC
+
+## Author
+
+**Usejd Nasufi**
+
+CodeRelic is created and maintained by Usejd Nasufi.
+
+- GitHub: [@usejd66](https://github.com/usejd66)
+- Repository: [github.com/usejd66/coderelic](https://github.com/usejd66/coderelic)

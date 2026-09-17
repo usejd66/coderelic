@@ -1,17 +1,38 @@
 {
   "name": "coderelic",
   "version": "0.1.0",
-  "description": "",
+  "description": "Evidence-based CLI for detecting potentially abandoned source files in Git repositories.",
   "main": "index.js",
+  "bin": {
+    "coderelic": "index.js"
+  },
   "scripts": {
     "test": "node --test",
     "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "code-analysis",
+    "dead-code",
+    "repository-analysis",
+    "static-analysis",
+    "git",
+    "cli",
+    "developer-tools",
+    "javascript",
+    "typescript"
+  ],
+  "author": "Usejd Nasufi",
   "license": "ISC",
   "type": "commonjs",
-  "bin": {
-    "coderelic": "index.js"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usejd66/coderelic.git"
+  },
+  "homepage": "https://github.com/usejd66/coderelic",
+  "bugs": {
+    "url": "https://github.com/usejd66/coderelic/issues"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
