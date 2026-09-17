@@ -55,7 +55,7 @@ Usage:
 }
 
 /**
- * Check whether a path is a source file.
+ * Check whether a file is a source file.
  */
 function isSourceFile(file) {
     return SOURCE_EXTENSIONS.some(extension =>
@@ -70,6 +70,53 @@ function isTestFile(file) {
     return TEST_PATTERNS.some(pattern =>
         file.includes(pattern)
     );
+}
+
+/**
+ * Detect files that may be managed automatically
+ * by a framework or runtime.
+ *
+ * This is only a signal, not proof that the file is active.
+ */
+function isPotentialRuntimeEntry(file) {
+    const normalized = file.replace(/\\/g, "/").toLowerCase();
+    const fileName = path.basename(normalized);
+
+    const runtimeNamePatterns = [
+        /^index\./,
+        /controller\./,
+        /route\./,
+        /router\./,
+        /middleware\./,
+        /handler\./,
+        /plugin\./,
+        /^page\./,
+        /^layout\./
+    ];
+
+    const runtimeDirectories = [
+        "/routes/",
+        "/pages/",
+        "/api/",
+        "/controllers/",
+        "/handlers/",
+        "/middleware/",
+        "/plugins/"
+    ];
+
+    const hasRuntimeName = runtimeNamePatterns.some(pattern =>
+        pattern.test(fileName)
+    );
+
+    // Add "/" around the path so root folders like
+    // "routes/users.js" also match "/routes/".
+    const pathForMatching = `/${normalized}`;
+
+    const hasRuntimeDirectory = runtimeDirectories.some(directory =>
+        pathForMatching.includes(directory)
+    );
+
+    return hasRuntimeName || hasRuntimeDirectory;
 }
 
 /**
@@ -138,9 +185,11 @@ function resolveImport(importer, importPath, trackedFilesSet) {
 
     const candidates = [
         basePath,
-        ...SOURCE_EXTENSIONS.map(ext => basePath + ext),
-        ...SOURCE_EXTENSIONS.map(ext =>
-            path.join(basePath, `index${ext}`)
+        ...SOURCE_EXTENSIONS.map(extension =>
+            basePath + extension
+        ),
+        ...SOURCE_EXTENSIONS.map(extension =>
+            path.join(basePath, `index${extension}`)
         )
     ];
 
@@ -238,7 +287,10 @@ function findOldFiles(files) {
 function findTestReferences(gitRoot, files, targetFile) {
     const references = [];
 
-    const targetName = path.basename(targetFile, path.extname(targetFile));
+    const targetName = path.basename(
+        targetFile,
+        path.extname(targetFile)
+    );
 
     for (const file of files) {
         if (!isTestFile(file)) {
@@ -273,32 +325,34 @@ function findTestReferences(gitRoot, files, targetFile) {
 }
 
 /**
- * Calculate evidence score.
+ * Calculate evidence score for one file.
  */
 function calculateScore({
     oldFile,
     importers,
-    testReferences
+    testReferences,
+    runtimeSignal = false
 }) {
     let score = 0;
 
-    // Old file is the starting point.
     if (oldFile) {
         score += 40;
     }
 
-    // No imports increases abandonment evidence.
     if (importers === 0) {
         score += 30;
     } else {
         score -= Math.min(importers * 10, 30);
     }
 
-    // No test references increases evidence.
     if (testReferences === 0) {
         score += 20;
     } else {
         score -= Math.min(testReferences * 5, 15);
+    }
+
+    if (runtimeSignal) {
+        score -= 30;
     }
 
     return Math.max(0, Math.min(100, score));
@@ -320,6 +374,93 @@ function getEvidenceLabel(score) {
 }
 
 /**
+ * Get the feature/area name from a file path.
+ */
+function getFeatureArea(file) {
+    const normalized = file.replace(/\\/g, "/");
+    const parts = normalized.split("/");
+
+    if (parts.length === 1) {
+        return "(root)";
+    }
+
+    return parts[0];
+}
+
+/**
+ * Aggregate file evidence into feature/area evidence.
+ */
+function aggregateFeatureAreas(
+    files,
+    oldFiles,
+    importedBy,
+    testReferencesBy
+) {
+    const oldFileSet = new Set(
+        oldFiles.map(item => item.file)
+    );
+
+    const areas = new Map();
+
+    for (const file of files) {
+        const areaName = getFeatureArea(file);
+
+        if (!areas.has(areaName)) {
+            areas.set(areaName, {
+                area: areaName,
+                totalFiles: 0,
+                oldFiles: 0,
+                activeImporters: 0,
+                testReferences: 0
+            });
+        }
+
+        const area = areas.get(areaName);
+
+        area.totalFiles++;
+
+        if (oldFileSet.has(file)) {
+            area.oldFiles++;
+        }
+
+        const importers = importedBy.get(file) || [];
+        area.activeImporters += importers.length;
+
+        const testReferences = testReferencesBy.get(file) || [];
+        area.testReferences += testReferences.length;
+    }
+
+    const results = [];
+
+    for (const area of areas.values()) {
+        const oldRatio =
+            area.totalFiles === 0
+                ? 0
+                : area.oldFiles / area.totalFiles;
+
+        let score = Math.round(oldRatio * 50);
+
+        if (area.activeImporters === 0) {
+            score += 30;
+        }
+
+        if (area.testReferences === 0) {
+            score += 20;
+        }
+
+        score = Math.max(0, Math.min(100, score));
+
+        results.push({
+            ...area,
+            score,
+            evidence: getEvidenceLabel(score)
+        });
+    }
+
+    return results.sort((a, b) => b.score - a.score);
+}
+
+/**
  * Scan repository.
  */
 function scanRepository() {
@@ -332,7 +473,7 @@ function scanRepository() {
     const gitRoot = runGit("git rev-parse --show-toplevel");
 
     if (!gitRoot) {
-        console.log("✕ This folder is not a Git repository.");
+        console.log("This folder is not a Git repository.");
         process.exit(1);
     }
 
@@ -348,38 +489,52 @@ function scanRepository() {
     const oldFiles = findOldFiles(files);
     const importedBy = buildImportGraph(gitRoot, files);
 
-    console.log("");
-    console.log("Possible abandoned files:");
-    console.log("");
-
-    if (oldFiles.length === 0) {
-        console.log("✓ No old files found.");
-        console.log("");
-    }
-
-    let highConfidence = 0;
-    let mediumConfidence = 0;
+    const testReferencesBy = new Map();
 
     for (const oldFile of oldFiles) {
-        const importers = importedBy.get(oldFile.file) || [];
-
-        const testReferences = findTestReferences(
+        const references = findTestReferences(
             gitRoot,
             files,
             oldFile.file
         );
 
+        testReferencesBy.set(
+            oldFile.file,
+            references
+        );
+    }
+
+    console.log("");
+    console.log("Possible abandoned files:");
+    console.log("");
+
+    let highConfidence = 0;
+    let mediumConfidence = 0;
+
+    for (const oldFile of oldFiles) {
+        const importers =
+            importedBy.get(oldFile.file) || [];
+
+        const testReferences =
+            testReferencesBy.get(oldFile.file) || [];
+
+        const runtimeSignal =
+            isPotentialRuntimeEntry(oldFile.file);
+
         const score = calculateScore({
             oldFile: true,
             importers: importers.length,
-            testReferences: testReferences.length
+            testReferences: testReferences.length,
+            runtimeSignal
         });
 
         const evidence = getEvidenceLabel(score);
 
         if (evidence === "HIGH") {
             highConfidence++;
-        } else if (evidence === "MEDIUM") {
+        }
+
+        if (evidence === "MEDIUM") {
             mediumConfidence++;
         }
 
@@ -393,6 +548,12 @@ function scanRepository() {
         console.log(`   Test references: ${testReferences.length}`);
         console.log(`   Evidence score: ${score}/100`);
         console.log(`   Evidence: ${evidence}`);
+
+        if (runtimeSignal) {
+            console.log(
+                "   Runtime signal: possible framework-managed file"
+            );
+        }
 
         if (importers.length > 0) {
             console.log("");
@@ -415,16 +576,41 @@ function scanRepository() {
         console.log("");
     }
 
+    const areas = aggregateFeatureAreas(
+        files,
+        oldFiles,
+        importedBy,
+        testReferencesBy
+    );
+
+    const featureAreas = areas.filter(
+        area => area.area !== "(root)"
+    );
+
+    if (featureAreas.length > 0) {
+        console.log("Feature / area analysis:");
+        console.log("");
+
+        for (const area of featureAreas) {
+            console.log(`>> ${area.area}/`);
+            console.log(`   Files: ${area.totalFiles}`);
+            console.log(`   Old files: ${area.oldFiles}`);
+            console.log(`   Active imports: ${area.activeImporters}`);
+            console.log(`   Test references: ${area.testReferences}`);
+            console.log(`   Evidence score: ${area.score}/100`);
+            console.log(`   Evidence: ${area.evidence}`);
+            console.log("");
+        }
+    }
+
     console.log("────────────────────────────────────────");
     console.log(`Old files found: ${oldFiles.length}`);
     console.log(`High-confidence candidates: ${highConfidence}`);
     console.log(`Medium-confidence candidates: ${mediumConfidence}`);
+    console.log(`Feature areas analyzed: ${featureAreas.length}`);
     console.log("");
 }
 
-/**
- * CLI routing.
- */
 /**
  * CLI routing.
  */
@@ -437,7 +623,7 @@ if (require.main === module) {
     if (command === "scan") {
         scanRepository();
     } else {
-        console.log(`✕ Unknown command: ${command}`);
+        console.log(`Unknown command: ${command}`);
         console.log("");
         showHelp();
         process.exit(1);
@@ -448,5 +634,8 @@ module.exports = {
     calculateScore,
     getEvidenceLabel,
     isTestFile,
-    extractImports
+    extractImports,
+    getFeatureArea,
+    aggregateFeatureAreas,
+    isPotentialRuntimeEntry
 };

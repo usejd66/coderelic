@@ -5,8 +5,16 @@ const {
     calculateScore,
     getEvidenceLabel,
     isTestFile,
-    extractImports
+    extractImports,
+    getFeatureArea,
+    aggregateFeatureAreas,
+    isPotentialRuntimeEntry
 } = require("../index.js");
+
+
+// --------------------------------------------------
+// Evidence scoring tests
+// --------------------------------------------------
 
 test("old unused file should have high evidence", () => {
     const score = calculateScore({
@@ -19,6 +27,7 @@ test("old unused file should have high evidence", () => {
     assert.strictEqual(getEvidenceLabel(score), "HIGH");
 });
 
+
 test("old imported file should have medium evidence", () => {
     const score = calculateScore({
         oldFile: true,
@@ -30,6 +39,7 @@ test("old imported file should have medium evidence", () => {
     assert.strictEqual(getEvidenceLabel(score), "MEDIUM");
 });
 
+
 test("old file imported by many files should have low evidence", () => {
     const score = calculateScore({
         oldFile: true,
@@ -40,6 +50,11 @@ test("old file imported by many files should have low evidence", () => {
     assert.strictEqual(score, 30);
     assert.strictEqual(getEvidenceLabel(score), "LOW");
 });
+
+
+// --------------------------------------------------
+// Test file detection
+// --------------------------------------------------
 
 test("test files should be detected", () => {
     assert.strictEqual(
@@ -58,6 +73,11 @@ test("test files should be detected", () => {
     );
 });
 
+
+// --------------------------------------------------
+// Import detection
+// --------------------------------------------------
+
 test("relative imports should be extracted", () => {
     const code = `
         import user from "./user";
@@ -69,5 +89,191 @@ test("relative imports should be extracted", () => {
     assert.deepStrictEqual(
         imports,
         ["./user", "./auth"]
+    );
+});
+
+
+// --------------------------------------------------
+// Feature area detection
+// --------------------------------------------------
+
+test("feature area should be detected from file path", () => {
+    assert.strictEqual(
+        getFeatureArea("payments/PaymentService.js"),
+        "payments"
+    );
+
+    assert.strictEqual(
+        getFeatureArea("auth/UserService.js"),
+        "auth"
+    );
+
+    assert.strictEqual(
+        getFeatureArea("app.js"),
+        "(root)"
+    );
+});
+
+
+test("feature areas should aggregate evidence", () => {
+    const files = [
+        "payments/PaymentService.js",
+        "payments/PaymentController.js",
+        "payments/PaymentTest.test.js",
+        "users/UserService.js",
+        "users/UserController.js"
+    ];
+
+    const oldFiles = [
+        {
+            file: "payments/PaymentService.js"
+        },
+        {
+            file: "payments/PaymentController.js"
+        },
+        {
+            file: "users/UserService.js"
+        }
+    ];
+
+    const importedBy = new Map([
+        [
+            "payments/PaymentService.js",
+            []
+        ],
+        [
+            "payments/PaymentController.js",
+            []
+        ],
+        [
+            "payments/PaymentTest.test.js",
+            []
+        ],
+        [
+            "users/UserService.js",
+            []
+        ],
+        [
+            "users/UserController.js",
+            [
+                "some-other-file.js"
+            ]
+        ]
+    ]);
+
+    const testReferencesBy = new Map([
+        [
+            "payments/PaymentService.js",
+            [
+                "payments/PaymentTest.test.js"
+            ]
+        ],
+        [
+            "payments/PaymentController.js",
+            []
+        ],
+        [
+            "users/UserService.js",
+            []
+        ]
+    ]);
+
+    const areas = aggregateFeatureAreas(
+        files,
+        oldFiles,
+        importedBy,
+        testReferencesBy
+    );
+
+    const payments = areas.find(
+        area => area.area === "payments"
+    );
+
+    const users = areas.find(
+        area => area.area === "users"
+    );
+
+    assert.ok(payments);
+    assert.ok(users);
+
+    assert.strictEqual(
+        payments.totalFiles,
+        3
+    );
+
+    assert.strictEqual(
+        payments.oldFiles,
+        2
+    );
+
+    assert.strictEqual(
+        payments.testReferences,
+        1
+    );
+
+    assert.strictEqual(
+        users.totalFiles,
+        2
+    );
+
+    assert.strictEqual(
+        users.oldFiles,
+        1
+    );
+
+    assert.strictEqual(
+        users.activeImporters,
+        1
+    );
+});
+
+
+// --------------------------------------------------
+// Runtime/framework detection
+// --------------------------------------------------
+
+test("framework-like files should be treated as runtime signals", () => {
+    assert.strictEqual(
+        isPotentialRuntimeEntry(
+            "payments/PaymentController.js"
+        ),
+        true
+    );
+
+    assert.strictEqual(
+        isPotentialRuntimeEntry(
+            "routes/users.js"
+        ),
+        true
+    );
+
+    assert.strictEqual(
+        isPotentialRuntimeEntry(
+            "pages/index.js"
+        ),
+        true
+    );
+
+    assert.strictEqual(
+        isPotentialRuntimeEntry(
+            "utils/math.js"
+        ),
+        false
+    );
+});
+
+
+test("runtime signal should reduce abandonment evidence", () => {
+    const score = calculateScore({
+        oldFile: true,
+        importers: 0,
+        testReferences: 0,
+        runtimeSignal: true
+    });
+
+    assert.strictEqual(score, 60);
+    assert.strictEqual(
+        getEvidenceLabel(score),
+        "MEDIUM"
     );
 });
