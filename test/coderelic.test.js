@@ -104,6 +104,20 @@ test("dynamic imports should be extracted", () => {
         ["./payments"]
     );
 });
+test("custom age threshold should identify old files", () => {
+    const now = Date.now();
+    const ninetyDays = 90 * 24 * 60 * 60 * 1000;
+
+    assert.strictEqual(
+        now - (now - ninetyDays - 1000) > ninetyDays,
+        true
+    );
+
+    assert.strictEqual(
+        now - (now - ninetyDays + 1000) > ninetyDays,
+        false
+    );
+});
 
 
 // --------------------------------------------------

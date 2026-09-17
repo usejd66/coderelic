@@ -25,6 +25,10 @@ const TEST_PATTERNS = [
 
 const SIX_MONTHS = 180 * 24 * 60 * 60 * 1000;
 
+function isFileOlderThan(lastModified, threshold, now = Date.now()) {
+    return now - lastModified > threshold;
+}
+
 /**
  * Run a Git command safely.
  */
@@ -152,12 +156,12 @@ function getTrackedFiles() {
 function extractImports(content) {
     const imports = [];
 
-   const patterns = [
-    /\bimport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\bexport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
-    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g
-];
+    const patterns = [
+        /\bimport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
+        /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+        /\bexport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
+        /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g
+    ];
 
     for (const pattern of patterns) {
         let match;
@@ -271,7 +275,7 @@ function findOldFiles(files) {
         const lastModified = Number(timestamp) * 1000;
         const age = now - lastModified;
 
-        if (age > SIX_MONTHS) {
+        if (isFileOlderThan(lastModified, SIX_MONTHS, now)) {
             oldFiles.push({
                 file,
                 lastModified
@@ -638,5 +642,6 @@ module.exports = {
     extractImports,
     getFeatureArea,
     aggregateFeatureAreas,
-    isPotentialRuntimeEntry
+    isPotentialRuntimeEntry,
+    isFileOlderThan
 };
