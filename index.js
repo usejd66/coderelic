@@ -152,11 +152,12 @@ function getTrackedFiles() {
 function extractImports(content) {
     const imports = [];
 
-    const patterns = [
-        /\bimport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
-        /\bexport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
-        /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g
-    ];
+   const patterns = [
+    /\bimport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\bexport\s+(?:[\s\S]*?\sfrom\s+)?["']([^"']+)["']/g,
+    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g
+];
 
     for (const pattern of patterns) {
         let match;

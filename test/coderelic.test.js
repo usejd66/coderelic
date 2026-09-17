@@ -92,6 +92,19 @@ test("relative imports should be extracted", () => {
     );
 });
 
+test("dynamic imports should be extracted", () => {
+    const code = `
+        const payments = import("./payments");
+    `;
+
+    const imports = extractImports(code);
+
+    assert.deepStrictEqual(
+        imports,
+        ["./payments"]
+    );
+});
+
 
 // --------------------------------------------------
 // Feature area detection
