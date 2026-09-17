@@ -324,4 +324,4 @@ if (command === "scan") {
     console.log("");
     showHelp();
     process.exit(1);
-}oiwe
+}
