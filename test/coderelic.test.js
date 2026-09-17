@@ -166,6 +166,26 @@ test("days argument should be parsed correctly", () => {
         getDaysArgument(["scan"]),
         180
     );
+
+    assert.throws(
+        () => getDaysArgument(["scan", "--days", "abc"]),
+        /--days requires a positive number/
+    );
+
+    assert.throws(
+        () => getDaysArgument(["scan", "--days"]),
+        /--days requires a positive number/
+    );
+
+    assert.throws(
+        () => getDaysArgument(["scan", "--days", "0"]),
+        /--days requires a positive number/
+    );
+
+    assert.throws(
+        () => getDaysArgument(["scan", "--days", "-30"]),
+        /--days requires a positive number/
+    );
 });
 
 

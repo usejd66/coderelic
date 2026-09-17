@@ -34,10 +34,16 @@ function getDaysArgument(args) {
         return 180;
     }
 
-    const days = Number(args[daysIndex + 1]);
+    const value = args[daysIndex + 1];
+
+    if (value === undefined) {
+        throw new Error("--days requires a positive number.");
+    }
+
+    const days = Number(value);
 
     if (!Number.isFinite(days) || days <= 0) {
-        return 180;
+        throw new Error("--days requires a positive number.");
     }
 
     return days;
